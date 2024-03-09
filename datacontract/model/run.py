@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Callable, List, Optional
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel
@@ -35,6 +35,7 @@ class Run(BaseModel):
     result: str = "unknown"
     checks: List[Check]
     logs: List[Log]
+    metric_callback: Optional[Callable[[str], None]] = None
 
     def has_passed(self):
         self.calculate_result()
@@ -55,6 +56,9 @@ class Run(BaseModel):
             self.result = "passed"
         else:
             self.result = "unknown"
+
+        if hasattr(self, 'metric_callback'):
+            self.metric_callback(self.result)  # Pass the result to the otel callback
 
     def log_info(self, message: str):
         logging.info(message)

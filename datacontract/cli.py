@@ -13,6 +13,7 @@ from typing_extensions import Annotated
 from datacontract.data_contract import DataContract
 from datacontract.init.download_datacontract_file import \
     download_datacontract_file, FileExistsException
+from datacontract.telemetry import Telemetry
 
 
 class OrderedCommands(TyperGroup):
@@ -109,8 +110,9 @@ def test(
     print(f"Testing {location}")
     if server == "all":
         server = None
+    telemetry = Telemetry()
     run = DataContract(data_contract_file=location, schema_location=schema, publish_url=publish, server=server,
-                       examples=examples).test()
+                       examples=examples, telemetry=telemetry).test()
     if logs:
         _print_logs(run)
     _handle_result(run)

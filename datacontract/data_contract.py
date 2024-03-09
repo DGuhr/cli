@@ -39,6 +39,8 @@ from datacontract.model.exceptions import DataContractException
 from datacontract.model.run import \
     Run, Check
 
+from opentelemetry import metrics
+from opentelemetry.metrics import Observation
 
 class DataContract:
     def __init__(
@@ -52,6 +54,7 @@ class DataContract:
         publish_url: str = None,
         spark: str = None,
         inline_definitions: bool = False,
+        telemetry = None,
     ):
         self._data_contract_file = data_contract_file
         self._data_contract_str = data_contract_str
@@ -72,7 +75,30 @@ class DataContract:
             ValidFieldConstraintsLinter(),
             DescriptionLinter()
         }
+        self.telemetry = telemetry
+        self.meter = metrics.get_meter_provider().get_meter("datacontracts-cli", "0.1.0")
+        self.latest_test_result = 0  # Default gauge value, will be updated based on test outcomes. TODO: discuss, not entirely sure we need it at all (anymore).
+    
+        # initialize the gauge
+        self.test_result_gauge = self.meter.create_observable_gauge(
+            "test_success_gauge",
+            description="Indicates if the last test run passed (1) or not (0)",
+            callbacks=[self.observe_test_result]
+        )
+        
+    # gauge callback function that adds the actual value to the gauge
+    def observe_test_result(self, observable_gauge):
+        data_contract = resolve.resolve_data_contract(self._data_contract_file, self._data_contract_str,
+                                                          self._data_contract, self._schema_location)
+        yield Observation(self.latest_test_result,{"data-contract-id": data_contract.id,"data-contract-version": data_contract.info.version, "datacontract-title": data_contract.info.title})
 
+    def update_metric_based_on_test_result(self, result: str):
+        # Update the latest test result based on the passed argument (for now: only 1 or zero)
+        self.latest_test_result = 1 if result == "passed" else 0
+
+        # Now, manually trigger the collection of metrics
+        self.telemetry.collect()
+    
     @classmethod
     def init(cls, template: str = "https://datacontract.com/datacontract.init.yaml") -> DataContractSpecification:
         return resolve.resolve_data_contract(data_contract_location=template)
@@ -208,6 +234,9 @@ class DataContract:
             logging.exception("Exception occurred")
             run.log_error(str(e))
 
+        # Set the run callback so the value gets collected.
+        run.metric_callback = lambda result: self.update_metric_based_on_test_result(result)
+    
         run.finish()
 
         if self._publish_url is not None:
